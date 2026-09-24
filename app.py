@@ -2270,6 +2270,86 @@ def enrich_attendance_row(a, employees=None):
     return row
 
 
+def working_days_between(first, last, holidays=None, employee=None):
+    """Mon-Fri days in [first, last] minus gazetted holidays, clipped to a person's employment.
+
+    The same rule `payroll_days` and `mock_data.month_working_days` use, so the register a person
+    reads and the divisor payroll uses cannot drift apart. `employee` trims the window to the
+    joining and exit dates: nobody is marked absent before they joined or after they left.
+    """
+    if holidays is None:
+        holidays = db_list("holidays")
+    off = {str(h.get("date"))[:10] for h in holidays}
+    if employee:
+        joining, exit_day = parse_day(employee.get("date_of_joining")), parse_day(employee.get("exit_date"))
+        if joining and joining > first:
+            first = joining
+        if exit_day and exit_day < last:
+            last = exit_day
+    return [first + timedelta(days=i) for i in range(max(0, (last - first).days + 1))
+            if (first + timedelta(days=i)).weekday() < 5 and (first + timedelta(days=i)).isoformat() not in off]
+
+
+def attendance_roster(emp_id, employees):
+    """Who the attendance screen answers for: one person when the URL asks for one, else everybody."""
+    if emp_id:
+        one = employees.get(str(emp_id))
+        return [one] if one else []
+    return [e for e in employees.values() if e.get("status") != "Exited" and not e.get("exit_date")]
+
+
+def missing_attendance_rows(first, last, rows, employees=None, holidays=None, leaves=None,
+                            regularizations=None):
+    """Synthetic rows for working days that are already behind us and carry no punch.
+
+    This is the hole the register used to have: nobody punches, no row is written, and the day
+    (22/09, say) simply does not exist on any screen. A register answers for every working day -
+    Present, On Leave, Absent, week off - so a past working day with no punch is `Absent`. Only
+    days up to *yesterday* are filled: today's punch may still come, and tomorrow cannot be absent
+    yet. A day covered by an approved leave reads `On Leave`; one with a *pending* regularization
+    request is left alone, because the request, not a verdict, is what should show. These rows are
+    display-only - nothing is written to the database - and `payroll_days()` docks them as Absent so
+    a slip matches the screen: file a regularization to win the day back.
+    """
+    if employees is None:
+        employees = attendance_roster(None, employees_map())
+    if holidays is None:
+        holidays = db_list("holidays")
+    if leaves is None:
+        leaves = db_list("leave_requests")
+    if regularizations is None:
+        regularizations = db_list("attendance_regularizations")
+    punched = {(str(r.get("employee_id")), str(r.get("date"))[:10]) for r in rows}
+    awaiting = {(str(r.get("employee_id")), str(r.get("date"))[:10])
+                for r in regularizations if r.get("status") == "Pending"}
+    covered = set()
+    for leave in leaves:
+        if leave.get("status") != "Approved":
+            continue
+        start = parse_day(leave.get("start_date"))
+        end = parse_day(leave.get("end_date") or leave.get("start_date"))
+        if not start or not end:
+            continue
+        for d in working_days_between(start, end, holidays):
+            covered.add((str(leave.get("employee_id")), d.isoformat()))
+    cutoff = min(last, today() - timedelta(days=1))            # today is not absent yet
+    out = []
+    for emp in employees:
+        eid = str(emp.get("id"))
+        for d in working_days_between(first, cutoff, holidays, employee=emp):
+            key = (eid, d.isoformat())
+            if key in punched or key in awaiting:
+                continue
+            on_leave = key in covered
+            out.append({"id": f"absent:{eid}:{d.isoformat()}", "employee_id": emp.get("id"),
+                        "date": d.isoformat(), "clock_in": None, "clock_out": None, "work_hours": 0.0,
+                        "break_minutes": None, "status": "On Leave" if on_leave else "Absent",
+                        "is_late": False, "regularization_status": "None", "synthetic": True,
+                        "note": "Approved leave on this day." if on_leave
+                                else "No attendance was marked on this working day, so it reads as absent."})
+    return out
+
+
 @app.route("/api/attendance")
 def api_attendance():
     emp_id = scoped_employee_id()
@@ -2287,6 +2367,8 @@ def api_attendance():
     rows = db_list("attendance", filters)
     rows = [r for r in rows if parse_day(r.get("date")) and parse_day(r.get("date")) <= last]
     emps = employees_map()
+    # the register answers for every working day: a past day with no punch comes back as Absent
+    rows = rows + missing_attendance_rows(first, last, rows, employees=attendance_roster(emp_id, emps))
     out = [enrich_attendance_row(r, emps) for r in rows]
     out.sort(key=lambda r: (r.get("date") or "", r.get("employee_name") or ""), reverse=True)
     return jsonify({"rows": out, "month": month, "month_label": first.strftime("%B %Y"),
@@ -2302,6 +2384,9 @@ def api_attendance_summary():
     if emp_id:
         filters["employee_id"] = emp_id
     rows = [r for r in db_list("attendance", filters) if parse_day(r.get("date")) and parse_day(r.get("date")) <= last]
+    emps, holidays = employees_map(), db_list("holidays")
+    rows = rows + missing_attendance_rows(first, last, rows, employees=attendance_roster(emp_id, emps),
+                                          holidays=holidays)
     by_status, total_hours, overtime_hours, late, half_days, absent = {}, 0.0, 0.0, 0, 0, 0
     per_day = {}
     for r in rows:
@@ -2314,12 +2399,12 @@ def api_attendance_summary():
         half_days += 1 if status == "Half Day" else 0
         absent += 1 if status == "Absent" else 0
         per_day[str(r.get("date"))[:10]] = status
-    working_days = sum(1 for n in range((last - first).days + 1)
-                       if (first + timedelta(days=n)).weekday() < 5)
+    working = working_days_between(first, last, holidays)        # a holiday is not a day to answer for
     days = [str(r.get("date"))[:10] for r in rows if r.get("status") in ("Present", "Work From Home", "Half Day")]
     return jsonify({
         "employee_id": emp_id, "month": month, "month_label": first.strftime("%B %Y"),
-        "days_marked": len(days), "working_days": working_days, "pending_days": max(0, working_days - len(days)),
+        "days_marked": len(days), "working_days": len(working),
+        "pending_days": len([d for d in working if d.isoformat() not in per_day]),
         "present": by_status.get("Present", 0), "wfh": by_status.get("Work From Home", 0),
         "half_days": half_days, "absent": absent, "on_leave": by_status.get("On Leave", 0),
         "total_hours": round(total_hours, 1), "overtime_hours": round(overtime_hours, 1),
@@ -2791,6 +2876,12 @@ def api_me():
     leaves = [enrich_leave_row(l) for l in db_list("leave_requests", {"employee_id": emp["id"]})]
     att_rows = [a for a in db_list("attendance", {"employee_id": emp["id"]}) if str(a.get("date") or "") >= str(day - timedelta(days=29))]
     month_att = [a for a in db_list("attendance", {"employee_id": emp["id"]}) if str(a.get("date") or "")[:7] == day.strftime("%Y-%m")]
+    # the month card answers for absent days too: a past working day with no punch is Absent
+    month_first, month_last = month_bounds(day.strftime("%Y-%m"))
+    month_absent = missing_attendance_rows(month_first, month_last, month_att, employees=[emp])
+    month_seen = {str(a.get("date"))[:10] for a in month_att + month_absent}
+    month_open = len([d for d in working_days_between(month_first, month_last, employee=emp)
+                      if d.isoformat() not in month_seen])
     docs = [enrich_document(d) for d in db_list("documents", {"employee_id": emp["id"]})]
     claims = db_list("reimbursements", {"employee_id": emp["id"]})
     reviews = [enrich_review(r) for r in db_list("performance_reviews", {"employee_id": emp["id"]})]
@@ -2819,7 +2910,8 @@ def api_me():
         "attendance_month": {"days": len(month_att), "present": len([a for a in month_att if a.get("status") == "Present"]),
                              "wfh": len([a for a in month_att if a.get("status") == "Work From Home"]),
                              "on_leave": len([a for a in month_att if a.get("status") == "On Leave"]),
-                             "absent": len([a for a in month_att if a.get("status") == "Absent"]),
+                             "absent": len([a for a in month_att + month_absent if a.get("status") == "Absent"]),
+                             "pending_days": month_open,
                              "late": len([a for a in month_att if a.get("is_late")]),
                              "hours": round(sum(money(a.get("work_hours")) for a in month_att), 1),
                              "month_label": day.strftime("%B %Y")},
@@ -3440,12 +3532,16 @@ def unpaid_leave_days(employee_id, year, month):
 
 
 def payroll_days(employee, year, month, through=None):
-    """Working, payable and lost days for one person-month, read from attendance.
+    """Working, payable and lost days for one person-month, read from the register.
 
     Only Mon-Fri days that are not gazetted holidays count, and the window starts on the joining date
     and stops on the exit date so a mid-month joiner is not paid (or docked) for days they were not
-    employed for. A missing punch is deliberately NOT loss of pay - that is what regularization is
-    for, and guessing against the employee is the wrong direction to err in.
+    employed for. A working day that is already over with no punch on file is Absent - the verdict the
+    attendance screen shows - and it costs a day's pay. Three things keep that from punishing anyone by
+    accident: today is never docked (the punch may still come, only days up to yesterday count), a day
+    with a *pending* regularization request is left alone until it is decided, and approved **paid**
+    leave keeps the day off the list. Unpaid leave on an unpunched day is loss of pay, exactly as it is
+    when a row says On Leave.
     """
     first, last = date(year, month, 1), month_end(year, month)
     off = {str(h.get("date"))[:10] for h in db_list("holidays") if str(h.get("date"))[:7] == f"{year:04d}-{month:02d}"}
@@ -3458,20 +3554,27 @@ def payroll_days(employee, year, month, through=None):
         working = [d for d in working if d <= exit_day]
     if through:
         working = [d for d in working if d <= through]
-    attendance = {str(a.get("date"))[:10]: a for a in db_list("attendance", {"employee_id": employee.get("id")})}
+    rows = db_list("attendance", {"employee_id": employee.get("id")})
+    attendance = {str(a.get("date"))[:10]: a for a in rows}
     _, unpaid = unpaid_leave_days(employee.get("id"), year, month)
+    # the register's verdict for a day nobody punched, so a slip and the attendance screen agree
+    unpunched = {str(r.get("date"))[:10]: r for r in missing_attendance_rows(
+        first, last, rows, employees=[employee], holidays=[{"date": d} for d in off],
+        leaves=db_list("leave_requests", {"employee_id": employee.get("id")}),
+        regularizations=db_list("attendance_regularizations", {"employee_id": employee.get("id")}))}
     lop, lost = 0.0, []
     for day in working:
-        row = attendance.get(day.isoformat())
+        iso = day.isoformat()
+        row = attendance.get(iso) or unpunched.get(iso)
         if not row:
-            continue
+            continue              # a day still to come, or one whose regularization is not decided yet
         status = str(row.get("status") or "").strip()
         weight = LOP_WEIGHTS.get(status)
-        if weight is None and status == "On Leave" and day.isoformat() in unpaid:
+        if weight is None and status == "On Leave" and iso in unpaid:
             weight = 1.0
         if weight:
             lop += weight
-            lost.append({"date": day.isoformat(), "label": fmt_day(day), "days": weight,
+            lost.append({"date": iso, "label": fmt_day(day), "days": weight,
                          "kind": status if status != "On Leave" else "Unpaid leave"})
     return {"working_days": len(working), "lop_days": round(lop, 2),
             "payable_days": round(len(working) - lop, 2), "lost_days": lost,

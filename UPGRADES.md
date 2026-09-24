@@ -251,8 +251,11 @@ merge — so the partial-form bug that silently zeroed fields cannot come back.
 A month is computed, not typed. `POST /api/payroll/run` works out the period's calendar
 (Mon–Fri minus that month's `holidays`, clipped by joining date, exit date and today), then for each
 employee: gross per day = monthly gross ÷ working days; loss of pay = 1 day per `Absent`, 0.5 per
-`Half Day`, 1 per `On Leave` whose type is unpaid (a missing punch is not loss of pay — attendance
-corrections and approved leave decide, not an absent-minded evening); then
+`Half Day`, 1 per `On Leave` whose type is unpaid — and a working day that is already over with no
+punch on file counts as `Absent` as well (`missing_attendance_rows`, the same verdict the attendance
+screen shows), so a forgotten punch costs the day. Today is never docked, and a pending
+regularization request or approved paid leave keeps the day off the list — regularize to win it back;
+then
 `net = gross + bonus − deductions − LOP`, with the day counts stored on the slip so the payslip can
 show its own working. Re-running is idempotent: existing `Published`/`Paid` slips are left alone and
 reported under `kept` unless you ask for `overwrite`. The response is a report — `created`,

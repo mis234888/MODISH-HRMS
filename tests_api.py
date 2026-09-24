@@ -4,6 +4,13 @@ import os
 import sys
 import uuid
 
+# This file also imports `app` into its own process (the error-envelope check and the source-level /
+# fake-client checks below), and that copy must start on the demo store: a Supabase-mode import never
+# loads `mock_data`, so `_load_mock()` would die with `name 'build_mock_db' is not defined` the moment
+# the fake client asks it for rows - and a test process has no business holding the real database
+# anyway. The endpoint calls themselves still go to whatever BASE points at.
+os.environ["USE_MOCK_DATA"] = "true"
+
 import requests
 
 BASE = os.environ.get("BASE", "http://localhost:5000")
