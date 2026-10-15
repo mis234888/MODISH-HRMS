@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ user.name }} · Ekkaa HRMS{% endblock %}
 {% block head %}
+<link rel="stylesheet" href="/static/css/chat.css?v={{ asset_v }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   .nav-item.active { background: #16a34a; color: white; }
@@ -146,6 +147,7 @@
           <a data-module="home" class="nav-item active flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium text-white/70 hover:bg-white/[0.06] hover:text-white transition cursor-pointer"><i class="fas fa-th-large w-5 text-white/40"></i> Home</a>
           <a data-module="me" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium text-white/70 hover:bg-white/[0.06] hover:text-white transition cursor-pointer"><i class="far fa-user w-5 text-white/40"></i> Me</a>
           <a data-module="inbox" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium text-white/70 hover:bg-white/[0.06] hover:text-white transition cursor-pointer"><i class="far fa-bell w-5 text-white/40"></i> Inbox <span id="inboxBadge" class="ml-auto bg-[#ff5a5a] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold hidden">0</span></a>
+          <a data-module="chat" href="/dashboard?chat=" class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13.5px] font-medium text-white/70 hover:bg-white/[0.06] hover:text-white transition cursor-pointer"><i class="far fa-comments w-5 text-white/40"></i> Chat <span id="chatBadge" class="chat-badge" hidden aria-label="Unread chat messages">0</span></a>
         </div>
       </div>
       <div>
@@ -288,6 +290,52 @@
         </div>
         <div id="inboxGroups" class="space-y-4"><div class="spin"></div></div>
       </div>
+
+      <!-- ==================== CHAT ==================== -->
+      <section id="module-chat" class="module-section" aria-label="One-to-one chat">
+        <div class="chat-toolbar">
+          <div><h2>Team chat</h2><p>One-to-one messages, just between you and your colleague.</p></div>
+          <button id="chatRefresh" type="button" class="btn btn-ghost btn-xs">Refresh</button>
+        </div>
+        <div id="chatStatus" class="chat-status" role="status" aria-live="polite" hidden><span id="chatStatusText"></span> <button id="chatRetry" type="button" class="btn btn-ghost btn-xs">Retry connection</button></div>
+        <details class="chat-settings keka-card">
+          <summary>Chat notifications</summary>
+          <p id="chatNotificationStatus" role="status">Notifications are off. Enable them here to request browser permission.</p>
+          <p>OS notifications require browser permission. Closed-tab delivery additionally needs configured Web Push, HTTPS (or localhost), and browser support. Delivery with the browser closed depends on your browser and device.</p>
+          <div class="chat-settings-actions">
+            <button id="chatEnableNotifications" type="button" class="btn btn-primary btn-xs" disabled>Enable notifications</button>
+            <button id="chatDisableNotifications" type="button" class="btn btn-ghost btn-xs" disabled>Disable notifications</button>
+            <label><input id="chatPreview" type="checkbox" disabled> Show message previews (this account)</label>
+            <button id="chatSavePreviews" type="button" class="btn btn-ghost btn-xs" disabled>Update previews</button>
+          </div>
+        </details>
+        <div id="chatLayout" class="chat-layout keka-card">
+          <aside class="chat-directory" aria-label="Contacts and conversations">
+            <label for="chatSearch">People &amp; conversations <span id="chatUnreadTotal"></span></label>
+            <input id="chatSearch" class="field" type="search" placeholder="Search name or employee code" autocomplete="off" disabled>
+            <div id="chatContacts" class="chat-contacts"><p class="chat-empty">Loading chat…</p></div>
+          </aside>
+          <div class="chat-panel">
+            <header class="chat-peer-header">
+              <button id="chatBack" type="button" class="btn btn-ghost btn-xs chat-back" aria-label="Back to contacts">← People</button>
+              <div><h3 id="chatPeerName">Choose a colleague</h3><p id="chatPeerDetails">Search by name or employee code to start a conversation.</p></div>
+            </header>
+            <div id="chatThreadStatus" class="chat-thread-status" role="status" hidden></div>
+            <div id="chatMessages" class="chat-messages" role="region" aria-label="Messages" tabindex="0">
+              <button id="chatOlder" type="button" class="btn btn-ghost btn-xs chat-older" hidden>Load older messages</button>
+              <div id="chatMessageList" role="list"></div>
+              <p id="chatEmpty" class="chat-empty">Your conversations will appear here.</p>
+            </div>
+            <button id="chatJump" type="button" class="chat-jump" hidden>New messages · jump to latest ↓</button>
+            <form id="chatCompose" class="chat-compose">
+              <label for="chatDraft" class="chat-compose-label">Message <span id="chatDraftCount">0 / 4000</span></label>
+              <textarea id="chatDraft" class="field" rows="3" maxlength="4000" placeholder="Write a message…" aria-describedby="chatComposeHint chatSendStatus" disabled></textarea>
+              <div class="chat-compose-footer"><span id="chatComposeHint">Enter to send · Shift+Enter for a new line · Ctrl+Enter to send</span><button id="chatSend" type="submit" class="btn btn-primary" disabled>Send</button></div>
+              <p id="chatSendStatus" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </section>
 
       <!-- ==================== EMPLOYEES ==================== -->
       <div id="module-employees" class="module-section space-y-5">
@@ -641,9 +689,11 @@
 <input type="file" id="docUploadFile" class="hidden">
 
 <div id="toastWrap" class="fixed bottom-6 right-6 z-[60] space-y-2"></div>
+<div id="chatPopups" class="chat-popups" aria-live="polite" aria-label="New chat messages"></div>
 
 <script>
   window.APP_USER = {{ user|tojson }};
 </script>
+<script src="/static/js/chat.js?v={{ asset_v }}"></script>
 <script src="/static/js/app.js?v={{ asset_v }}"></script>
 {% endblock %}

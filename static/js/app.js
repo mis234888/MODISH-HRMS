@@ -19,7 +19,7 @@ function allowedModules() {
   const m = (APP.session && APP.session.modules) || APP.user.modules;
   return Array.isArray(m) && m.length ? m : null;
 }
-function canOpenModule(mod) { const m = allowedModules(); return !m || m.includes(mod); }
+function canOpenModule(mod) { const m = allowedModules(); return mod === 'chat' || !m || m.includes(mod); }
 function moduleLabel(mod) { return (MODULE_TITLES[mod] || [mod])[0]; }
 function hideEl(id) { const el = document.getElementById(id); if (el) el.classList.add('hidden'); }
 function dash(v, alt = '—') { return (v === null || v === undefined || v === '' || v === '-') ? alt : esc(v); }
@@ -196,6 +196,7 @@ const MODULE_TITLES = {
   home: ['Home', () => `Here is what is happening at Ekkaa today, ${APP.user.name.split(' ')[0]}.`],
   me: ['Me', () => 'Your profile, documents, balances and pay records.'],
   inbox: ['Inbox', () => 'Approvals waiting on you.'],
+  chat: ['Chat', () => 'Private one-to-one conversations with your colleagues.'],
   employees: ['Employees', () => 'The full directory, joiners and exits.'],
   orgchart: ['Organization Chart', () => 'Reporting lines, hierarchy depth and department structure.'],
   documents: ['Documents', () => 'Every file on record, why it was filed and who may see it.'],
@@ -209,7 +210,7 @@ const MODULE_TITLES = {
   reports: ['Reports', () => 'Run, filter and export HR reports.']
 };
 const LOADERS = {
-  home: loadDashboard, me: loadMe, inbox: loadInbox, employees: loadEmployees, orgchart: loadOrgChart,
+  home: loadDashboard, me: loadMe, inbox: loadInbox, chat: () => window.EkkaaChat.load(), employees: loadEmployees, orgchart: loadOrgChart,
   documents: loadDocuments, attendance: loadAttendance, leave: loadLeave, timesheet: loadTimesheet,
   payroll: loadPayroll, expenses: loadExpenses, hiring: loadHiring, performance: loadPerformance, reports: loadReports
 };
@@ -238,7 +239,7 @@ function applyRoleGating() {
   // nav: show only the modules this login was granted
   const mine = allowedModules();
   if (mine) $$('a[data-module]').forEach(a => {
-    const on = mine.includes(a.dataset.module);
+    const on = a.dataset.module === 'chat' || mine.includes(a.dataset.module);
     if (on) { a.style.display = ''; a.classList.remove('hidden'); }
     else { a.style.display = 'none'; a.classList.add('hidden'); }
   });
@@ -360,6 +361,7 @@ async function bootApp() {
   switchModule(saved && document.getElementById('module-' + saved) ? saved : 'home');
   const sess = await apiQuiet('/api/session');
   if (sess) { APP.session = sess; APP.officeDate = sess.office_date || APP.officeDate; APP.user.employee_id = sess.employee?.id || APP.user.employee_id; APP.user.role = sess.is_admin ? 'HR Admin' : 'Employee'; applyRoleGating(); }
+  window.EkkaaChat.init();
 }
 
 async function runGlobalSearch(q) {

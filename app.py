@@ -14,6 +14,7 @@ import secrets
 import re
 import uuid
 import csv
+import sys
 from datetime import datetime, date, timedelta
 from functools import wraps
 
@@ -36,7 +37,10 @@ MOCK_STORE_PATH = os.path.join(APP_DIR, "data", "mock_store.json")
 MOCK_PERSIST = os.getenv("MOCK_PERSIST", "true").lower() != "false"
 
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "keka-clone-secret-key-2026-super-secure")
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true")
+app.config["CHAT_SESSION_SECRET_CONFIGURED"] = bool(os.getenv("FLASK_SECRET_KEY"))
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024        # 25 MB uploads
 CORS(app)
 
@@ -104,7 +108,7 @@ MIN_PASSWORD_LENGTH = max(6, int(os.getenv("MIN_PASSWORD_LENGTH", "8")))
 # decorators all read these lists, so a screen can never be hidden in one place and still be
 # reachable in another. Employees get a self-service workspace; HR Admins get everything.
 EMPLOYEE_MODULES = ["home", "me", "inbox", "attendance", "leave", "timesheet", "payroll",
-                    "expenses", "documents", "performance", "orgchart"]
+                    "expenses", "documents", "performance", "orgchart", "chat"]
 ADMIN_MODULES = ["employees", "hiring", "reports"]
 ALL_MODULES = EMPLOYEE_MODULES + ADMIN_MODULES
 
@@ -818,7 +822,7 @@ def login():
         if emp is not None and (emp.get("status") or "Active") == "Exited":
             return _fail("This account is not active any more. Contact HR if you need access back.")
         if email in ADMIN_EMAILS:
-            if password != ADMIN_PASSWORD and not verify_employee_password(emp, password):
+            if password != ADMIN_PASSWORD and not (has_own_password(emp) and verify_employee_password(emp, password)):
                 return _fail()
             role = "HR Admin"
         elif emp is not None and verify_employee_password(emp, password):
@@ -828,6 +832,7 @@ def login():
 
         name = (emp.get("full_name") if emp else None) or ("Admin User" if role == "HR Admin" else email.split("@")[0].title())
         avatar = ((emp.get("avatar") or "").strip() if emp else "") or initials(name)
+        session.clear()
         session["user"] = {"email": email, "name": name, "role": role, "avatar": avatar,
                            "employee_id": (emp or {}).get("id"),
                            "department": dept_map().get(str((emp or {}).get("department_id")), ""),
@@ -5574,16 +5579,24 @@ def api_attendance_post():
     return api_attendance_clock()
 
 
+# Chat has its own identity/scoped storage and is deliberately absent from HR reports.
+from chat_backend import init_chat
+init_chat(app, sys.modules[__name__])
+
+
 # =================================================================== run it
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     mode = "Supabase" if supabase else "demo data (mock)"
-    print("─" * 74)
-    print("  Ekkaa HRMS")
-    print(f"  Data source : {mode}")
-    print(f"  Storage     : {('Supabase Storage/' + SUPABASE_BUCKET) if (supabase and SUPABASE_BUCKET) else 'local uploads/'}")
-    print(f"  Login       : {', '.join(sorted(ADMIN_EMAILS))} / {ADMIN_PASSWORD} as HR Admin")
-    print(f"  Open        : http://localhost:{port}")
-    print("─" * 74)
+    try:
+        print("-" * 74)
+        print("  Ekkaa HRMS")
+        print(f"  Data source : {mode}")
+        print(f"  Storage     : {('Supabase Storage/' + SUPABASE_BUCKET) if (supabase and SUPABASE_BUCKET) else 'local uploads/'}")
+        print("  Login       : Use your configured HR Admin or employee account")
+        print(f"  Open        : http://localhost:{port}")
+        print("-" * 74)
+    except UnicodeEncodeError:
+        print("Ekkaa HRMS starting on port", port)
     app.run(host="0.0.0.0", port=port, debug=debug)

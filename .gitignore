@@ -31,3 +31,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Private chat storage and local credentials (back up separately, never commit)
+data/chat.key
+data/chat.sqlite3*
+data/.chat-key-*
+.env.chat
+*.pem

@@ -2,6 +2,13 @@
 
 A complete, production-ready HRMS built with **Python Flask** and **Supabase**. Modern, clean UI with all major HR modules.
 
+## Team chat
+
+Private one-to-one chat, saved conversations, unread counts, read receipts, and
+clickable dashboard/desktop notifications are available in **Chat**. See
+[CHAT_SETUP.md](CHAT_SETUP.md) for the separate Supabase migration, encryption
+keys, HTTPS/Web Push setup, privacy boundaries, and verification steps.
+
 ![Ekkaa HRMS](https://img.shields.io/badge/Stack-Flask%20%2B%20Supabase-15803d) ![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
