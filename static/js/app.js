@@ -360,7 +360,7 @@ async function bootApp() {
   const saved = localStorage.getItem('ekkaa.module');
   switchModule(saved && document.getElementById('module-' + saved) ? saved : 'home');
   const sess = await apiQuiet('/api/session');
-  if (sess) { APP.session = sess; APP.officeDate = sess.office_date || APP.officeDate; APP.user.employee_id = sess.employee?.id || APP.user.employee_id; APP.user.role = sess.is_admin ? 'HR Admin' : 'Employee'; applyRoleGating(); }
+  if (sess) { APP.session = sess; APP.officeDate = sess.office_date || APP.officeDate; APP.officeTime = sess.office_time || APP.officeTime; APP.user.employee_id = sess.employee?.id || APP.user.employee_id; APP.user.role = sess.is_admin ? 'HR Admin' : 'Employee'; applyRoleGating(); }
   window.EkkaaChat.init();
 }
 
@@ -378,12 +378,33 @@ async function runGlobalSearch(q) {
 }
 
 /* ---------------------------- home ---------------------------- */
+function renderDashboardWelcome(now = new Date()) {
+  const dateEl = $('#dashboardDate');
+  const greetingEl = $('#dashboardGreeting');
+  if (!dateEl || !greetingEl) return;
+
+  // Prefer the office date sent by Flask so the welcome widget agrees with attendance
+  // and the rest of the dashboard when the browser and server use different timezones.
+  const officeDate = APP.officeDate || now.toISOString().slice(0, 10);
+  const date = new Date(`${officeDate}T00:00:00`);
+  const dateLabel = isNaN(date) ? officeDate : date.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
+  });
+  const hour = APP.officeTime ? Number(String(APP.officeTime).slice(0, 2)) : now.getHours();
+  const part = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  const name = String(APP.user.name || APP.user.full_name || 'there').trim().split(/\s+/)[0] || 'there';
+
+  dateEl.textContent = dateLabel;
+  greetingEl.innerHTML = `Good ${part}, ${esc(name)} <span class="text-[#15803d]" aria-hidden="true">✦</span>`;
+}
+
 function initClock() {
   const tick = () => {
     const now = new Date();
     const el = $('#liveClock'); if (!el) return;
     el.textContent = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
     $('#liveDate').textContent = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    renderDashboardWelcome(now);
   };
   tick(); setInterval(tick, 1000);
 }
