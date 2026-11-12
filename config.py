@@ -1,5 +1,5 @@
 """
-Central config for Ekkaa HRMS
+Central config for Modish Enterprises
 """
 import os
 from dotenv import load_dotenv
@@ -14,6 +14,6 @@ class Config:
     PORT = int(os.getenv("PORT", 5000))
     
     # App specific
-    COMPANY_NAME = "Ekkaa HRMS"
+    COMPANY_NAME = "Modish Enterprises"
     DEFAULT_SHIFT = "General Shift"
     LEAVE_YEAR = 2026
