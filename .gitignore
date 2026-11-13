@@ -8,6 +8,11 @@ venv/
 .venv/
 env/
 .env
+.env.*
+!.env.example
+logfile/
+uploads/
+data/
 *.egg-info/
 dist/
 build/
@@ -36,5 +41,4 @@ Thumbs.db
 data/chat.key
 data/chat.sqlite3*
 data/.chat-key-*
-.env.chat
 *.pem

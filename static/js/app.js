@@ -193,7 +193,7 @@ function grid(cols, html) { return `<div class="grid grid-cols-1 ${cols} gap-3">
 
 /* ---------------------------- nav / boot ---------------------------- */
 const MODULE_TITLES = {
-  home: ['Home', () => `Here is what is happening at Ekkaa today, ${APP.user.name.split(' ')[0]}.`],
+  home: ['Home', () => `Here is what is happening at Modish today, ${APP.user.name.split(' ')[0]}.`],
   me: ['Me', () => 'Your profile, documents, balances and pay records.'],
   inbox: ['Inbox', () => 'Approvals waiting on you.'],
   chat: ['Chat', () => 'Private one-to-one conversations with your colleagues.'],
@@ -436,7 +436,7 @@ function renderHomeKpis(s) {
         : esc(t.shift_label || 'Your shift'), { tone: /absent/i.test(t.status || '') ? 'bad' : 'good', onclick: "switchModule('attendance')" }),
       kpiCard('Waiting on approval', s.pending_total, `${s.pending_leaves} leave · ${s.pending_expenses} expenses · ${s.pending_documents} documents`,
         { tone: s.pending_total ? 'warn' : 'default', onclick: "switchModule('inbox')" }),
-      kpiCard('On leave today', s.on_leave, 'Approved leave running across Ekkaa', { onclick: "switchModule('leave')" }),
+      kpiCard('On leave today', s.on_leave, 'Approved leave running across Modish', { onclick: "switchModule('leave')" }),
       kpiCard('Attendance rate', `${s.attendance_rate}%`, `of ${s.expected_today} people expected in today`,
         { tone: s.attendance_rate >= 90 ? 'good' : s.attendance_rate >= 80 ? 'warn' : 'bad' }),
       kpiCard('Holidays ahead', today0.holidays_left || 0, hol ? `Next: ${esc(hol.name)} · ${fmtDate(hol.date)}` : 'Nothing scheduled', { onclick: "switchModule('leave')" }),
@@ -952,7 +952,7 @@ async function loadMe(refresh) {
           <div class="min-w-0 flex-1"><div class="font-display font-bold text-[20px] leading-tight">${esc(e.full_name)}</div><div class="text-[13px] text-[#64748b] mt-0.5">${esc(e.designation)}</div>
             <div class="flex flex-wrap gap-1.5 mt-2">${statusPill(e.status)}<span class="pill bg-[#f0fdf4] text-[#64748b]">${esc(e.employee_code)}</span>${isAdmin() ? '<span class="pill bg-[#d1fae5] text-[#15803d]">HR Admin</span>' : ''}</div></div>
         </div>
-        <div class="grid grid-cols-3 gap-2 mt-5">${stat('Tenure', esc(e.tenure), 'at Ekkaa')}${stat('Leave left', bal, 'days this year')}${stat('Rating', (d.reviews || [])[0] ? (d.reviews[0].rating_label || '—') : '—', 'last review')}</div>
+        <div class="grid grid-cols-3 gap-2 mt-5">${stat('Tenure', esc(e.tenure), 'at Modish')}${stat('Leave left', bal, 'days this year')}${stat('Rating', (d.reviews || [])[0] ? (d.reviews[0].rating_label || '—') : '—', 'last review')}</div>
         <div class="mt-5 space-y-0">${info('Work email', `<a class="text-[#15803d] hover:underline" href="mailto:${esc(e.email)}">${esc(e.email)}</a>`)}${info('Phone', esc(e.phone))}${info('Personal email', esc(e.personal_email))}${info('Department', esc(e.department))}${info('Reports to', d.manager ? esc(d.manager.full_name) : '—')}${d.skip_level ? info('Skip level', esc(d.skip_level.full_name)) : ''}${info('Location', esc(e.work_location))}${info('Joined', fmtDate(e.date_of_joining))}${info('Date of birth', fmtDate(e.date_of_birth))}${info('Blood group', esc(e.blood_group))}${info('Emergency', e.emergency_contact_name ? `${esc(e.emergency_contact_name)} · ${esc(e.emergency_contact_relation)} · ${esc(e.emergency_contact_phone)}` : 'Not on file')}</div>
         <div class="grid grid-cols-2 gap-2 mt-4">
           ${nextB ? `<div class="bg-[#fff4e6] rounded-xl p-3"><div class="text-[10.5px] uppercase tracking-widest text-[#b7791f] font-semibold">Birthday in</div><div class="font-display font-bold text-[16px] text-[#b7791f] num mt-0.5">${nextB.days_left === 0 ? 'Today 🎉' : nextB.days_left + ' days'}</div></div>` : ''}
@@ -986,7 +986,7 @@ async function loadMe(refresh) {
         })())}
         ${(d.goals || []).length ? card('Active goals', 'From your current cycle', `<div class="space-y-2.5">${d.goals.map(g2 => `<div><div class="flex items-center justify-between text-[12.5px]"><span class="font-medium truncate pr-3">${esc(g2.title)}</span><span class="text-[#94a3b8] num">${g2.progress}% · ${esc(g2.health_label)}</span></div><div class="bar mt-1"><span style="width:${g2.progress}%;background:${g2.health === 'on_track' ? '#0f9d58' : g2.health === 'achieved' ? '#15803d' : '#f59e0b'}"></span></div></div>`).join('')}</div>`) : ''}
         ${(d.timesheets || []).length ? card('Recent timesheets', '', `<div class="space-y-1.5">${d.timesheets.map(t => `<div class="flex items-center gap-2 text-[12.5px]"><span>${esc(t.week_starting)} → ${esc(t.week_label || '')}</span><span class="ml-auto num text-[#64748b]">${num(t.total_hours)} h</span>${statusPill(t.status)}</div>`).join('')}</div>`) : ''}
-        ${card('Sign-in security', 'How you get into Ekkaa', (() => {
+        ${card('Sign-in security', 'How you get into Modish', (() => {
           const sec = (APP.session && APP.session.security) || {};
           const own = !!sec.has_own_password;
           const who = (APP.session && APP.session.user && APP.session.user.email) || APP.user.email || '—';
@@ -2570,7 +2570,7 @@ async function openPayslipDetail(id) {
                                : `<button onclick="closeAllModals();revokePayslip('${s.id}')" class="btn btn-ghost"><i class="fas fa-rotate-left"></i> Revoke</button>`}` : '')
     + `<button onclick="closeAllModals()" class="btn btn-ghost">Close</button>`;
   openModal(`${s.period_label} payslip`, `<div class="print-area">
-    <div class="flex items-start justify-between pb-4 border-b border-[#f1f5f9]"><div><div class="font-display font-bold text-[16px]">${esc(c.name || 'Ekkaa Technologies')}</div><div class="text-[11.5px] text-[#94a3b8]">${esc(c.address || '')} · GSTIN ${esc(c.gstin || '')}</div></div>
+    <div class="flex items-start justify-between pb-4 border-b border-[#f1f5f9]"><div><div class="font-display font-bold text-[16px]">${esc(c.name || 'Modish Enterprises')}</div><div class="text-[11.5px] text-[#94a3b8]">${esc(c.address || '')} · GSTIN ${esc(c.gstin || '')}</div></div>
       <div class="text-right"><div class="text-[11px] uppercase tracking-widest text-[#94a3b8] font-semibold">Payslip</div><div class="font-display font-bold text-[15px]">${esc(s.period_label)}</div><span class="pill bg-[#f0fdf4] text-[#64748b]">${esc(s.employee?.employee_code || '')}</span></div></div>
     <div class="grid grid-cols-2 gap-5 py-4">
       <div><div class="lbl">Employee</div><div class="text-[13.5px] font-semibold">${esc(s.employee?.full_name || '')}</div><div class="text-[12px] text-[#64748b]">${esc(s.employee?.designation || '')} · ${esc(s.employee?.department || '')}</div><div class="text-[12px] text-[#94a3b8]">${esc(s.employee?.work_location || '')}</div></div>

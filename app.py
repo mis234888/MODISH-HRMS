@@ -3713,7 +3713,7 @@ def api_payslip_detail(row_id):
                                         "•••• " + str(employee.get("bank_account_no"))[-4:] or "—",
                              "ifsc": employee.get("ifsc_code") or "—", "pan": employee.get("pan_no") or "—",
                              "uan": employee.get("uan_no") or "—", "pf": employee.get("pf_no") or "—"},
-                    "company": {"name": "Ekkaa Technologies Pvt. Ltd.", "gstin": "29AABCE1234F1Z5",
+                    "company": {"name": "Modish Enterprises", "gstin": "29AABCE1234F1Z5",
                                 "address": "Prestige Tech Park, Outer Ring Road, Bengaluru 560103"}})
 
 
@@ -5591,12 +5591,12 @@ if __name__ == "__main__":
     mode = "Supabase" if supabase else "demo data (mock)"
     try:
         print("-" * 74)
-        print("  Ekkaa HRMS")
+        print("  Modish Enterprises")
         print(f"  Data source : {mode}")
         print(f"  Storage     : {('Supabase Storage/' + SUPABASE_BUCKET) if (supabase and SUPABASE_BUCKET) else 'local uploads/'}")
         print("  Login       : Use your configured HR Admin or employee account")
         print(f"  Open        : http://localhost:{port}")
         print("-" * 74)
     except UnicodeEncodeError:
-        print("Ekkaa HRMS starting on port", port)
+        print("Modish Enterprises starting on port", port)
     app.run(host="0.0.0.0", port=port, debug=debug)

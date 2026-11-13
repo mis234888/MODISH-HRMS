@@ -1,8 +1,8 @@
-"""One-shot: generate EKKAA logo assets and wire them into all templates (idempotent)."""
-import os, re, shutil, subprocess
+"""One-shot: generate Modish Enterprises logo assets and wire them into all templates (idempotent)."""
+import os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-PY = os.path.join(ROOT, 'venv', 'Scripts', 'python.exe')
+PY = sys.executable
 IMG = os.path.join(ROOT, 'static', 'img')
 DIMG = os.path.join(ROOT, 'deploy-ready', 'static', 'img')
 
@@ -24,7 +24,7 @@ TILE_RE = re.compile(
 
 def tile_repl(_m):
     return ('<div class="w-10 h-10 shrink-0 rounded-xl bg-white flex items-center justify-center '
-            'shadow-sm"><img src="/static/img/ekkaa-mark.png" alt="Ekkaa" '
+            'shadow-sm"><img src="/static/img/ekkaa-mark.png" alt="Modish" '
             'class="h-7 w-7 object-contain"></div>')
 
 def patch(path, label):
@@ -43,7 +43,7 @@ def patch(path, label):
         if n:
             t = t2; out.append("favicon: OK x%d" % n)
         else:
-            t2, n = re.subn(r'(<head[^>]*>)',
+            t2, n = re.subn(r'(<head\b[^>]*>)',
                             r'\1\n    <link rel="icon" type="image/png" href="/static/img/favicon.png">',
                             t, count=1)
             out.append("favicon: " + ("INSERTED" if n else "MISS"))

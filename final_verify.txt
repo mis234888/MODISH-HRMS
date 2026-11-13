@@ -1,23 +1,29 @@
 === STEP 0: ASSETS ON DISK ===
-DISK OK   static\img/ekkaa-logo-full.png  (65825 bytes)
-DISK OK   static\img/ekkaa-mark.png  (11821 bytes)
-DISK OK   static\img/favicon.png  (3176 bytes)
-DISK OK   deploy-ready\static\img/ekkaa-logo-full.png  (65825 bytes)
-DISK OK   deploy-ready\static\img/ekkaa-mark.png  (11821 bytes)
-DISK OK   deploy-ready\static\img/favicon.png  (3176 bytes)
+DISK OK   static\img/ekkaa-logo-full.png  (41025 bytes)
+DISK OK   static\img/ekkaa-mark.png  (135522 bytes)
+DISK OK   static\img/favicon.png  (6212 bytes)
+DISK OK   deploy-ready\static\img/ekkaa-logo-full.png  (41025 bytes)
+DISK OK   deploy-ready\static\img/ekkaa-mark.png  (135522 bytes)
+DISK OK   deploy-ready\static\img/favicon.png  (6212 bytes)
 === STEP 1: PIXEL TRANSPARENCY ===
-PIXEL static\img/ekkaa-mark.png size=(289, 289) corner_alpha=0 (transparent bg OK)
-PIXEL deploy-ready\static\img/ekkaa-mark.png size=(289, 289) corner_alpha=0 (transparent bg OK)
+PIXEL static\img/ekkaa-mark.png size=(512, 512) corner_alpha=0 (transparent bg OK)
+PIXEL deploy-ready\static\img/ekkaa-mark.png size=(512, 512) corner_alpha=0 (transparent bg OK)
 === STEP 2: SERVER ===
-SERVER: started pid=14892 up=False
+SERVER: started pid=18416 up=True
 === STEP 3: HTTP ASSETS ===
-HTTP /static/img/ekkaa-logo-full.png: ERROR <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
-HTTP /static/img/ekkaa-mark.png: ERROR <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
-HTTP /static/img/favicon.png: ERROR <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
+HTTP /static/img/ekkaa-logo-full.png: 200 image/png len=41025
+HTTP /static/img/ekkaa-mark.png: 200 image/png len=135522
+HTTP /static/img/favicon.png: 200 image/png len=6212
 === STEP 4: RENDERED PAGES ===
-PAGE /dashboard: ERROR <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
-PAGE /login: ERROR <urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>
+PAGE /dashboard: 200 | full-logo=False | mark=True | favicon=True
+PAGE /login: 200 | full-logo=False | mark=True | favicon=True
 === STEP 5: TEST SUITE ===
+  FAIL | dashboard page 200 - 200
+  HTML TAG BALANCE: OK
+  FAIL | stats 200 - 401
+  FAIL | stats has total_employees - {'error': 'Authentication required - please log in', 'success': False}
+  FAIL | employees GET 200 - 401
+  FAIL | employees POST ok - (401, {'error': 'Authentication required - please log in', 'success': False})
 TESTS EXIT CODE: 1
 SERVER: stopped (tree kill)
 === VERIFY COMPLETE ===

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ user.name }} · Ekkaa HRMS{% endblock %}
+{% block title %}{{ user.name }} · Modish Enterprises{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="/static/css/chat.css?v={{ asset_v }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -213,7 +213,7 @@
         <div class="w-px h-6 bg-[#dcfce7] mx-1"></div>
         <div onclick="switchModule('me')" title="My profile" class="cursor-pointer flex items-center gap-2 pl-1">
           <div class="w-10 h-10 shrink-0 rounded-xl bg-white flex items-center justify-center shadow-sm overflow-hidden text-[13px] font-semibold text-[#15803d]">
-            {% if user.avatar and user.avatar|length > 3 %}<img src="{{ user.avatar }}" class="w-full h-full object-cover" alt="Ekkaa">{% else %}{{ user.avatar or 'AU' }}{% endif %}
+            {% if user.avatar and user.avatar|length > 3 %}<img src="{{ user.avatar }}" class="w-full h-full object-cover" alt="Modish">{% else %}{{ user.avatar or 'AU' }}{% endif %}
           </div>
         </div>
       </div>
@@ -260,7 +260,7 @@
               <div id="trackerShift" class="text-white/40 text-[11.5px] mt-3 text-center">—</div>
             </div>
             <div class="keka-card p-5">
-              <div class="flex items-center justify-between mb-3"><h3 class="font-display font-semibold text-[15px]">Today at Ekkaa</h3><span id="todayDate" class="text-[11.5px] text-[#94a3b8]"></span></div>
+              <div class="flex items-center justify-between mb-3"><h3 class="font-display font-semibold text-[15px]">Today at Modish</h3><span id="todayDate" class="text-[11.5px] text-[#94a3b8]"></span></div>
               <div class="space-y-3.5">
                 <div><div class="text-[10.5px] uppercase tracking-widest text-[#94a3b8] font-semibold mb-2">Birthdays</div><div id="todayBirthdaysList" class="flex flex-wrap gap-2"></div></div>
                 <div><div class="text-[10.5px] uppercase tracking-widest text-[#94a3b8] font-semibold mb-2">Work anniversaries</div><div id="todayAnniversariesList" class="space-y-1.5"></div></div>
