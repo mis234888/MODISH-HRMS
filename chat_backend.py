@@ -461,12 +461,24 @@ class _SupabaseStore:
             # smaller than our requested batch. An empty keyset page ends it.
 
     def send(self, account, peer, client_id, ciphertext, digest):
-        result = self.client.rpc("chat_send_message", {
+        params = {
             "p_sender_id": account,
             "p_recipient_id": None if self._is_group(peer) else peer,
-            "p_group_id": self._group_uuid(peer) if self._is_group(peer) else None,
-            "p_client_id": client_id, "p_body_ciphertext": ciphertext, "p_body_digest": digest,
-        }).execute().data
+            "p_client_id": client_id,
+            "p_body_ciphertext": ciphertext,
+            "p_body_digest": digest,
+        }
+        if self._is_group(peer):
+            params["p_group_id"] = self._group_uuid(peer)
+            result = self.client.rpc("chat_send_message", params).execute().data
+        else:
+            try:
+                # First try without p_group_id for existing database schemas
+                result = self.client.rpc("chat_send_message", params).execute().data
+            except Exception:
+                # If upgraded schema requires p_group_id parameter explicitly:
+                params["p_group_id"] = None
+                result = self.client.rpc("chat_send_message", params).execute().data
         return result["status"], result.get("message")
 
     def mark_read(self, account, peer, through):
@@ -475,13 +487,19 @@ class _SupabaseStore:
         }).execute().data)
 
     def groups(self, account):
-        return (self.client.rpc("chat_groups_list", {"p_account_id": account})
-                .execute().data or [])
+        try:
+            return (self.client.rpc("chat_groups_list", {"p_account_id": account})
+                    .execute().data or [])
+        except Exception:
+            return []
 
     def group_members(self, group_id):
         uuid = group_id[2:] if group_id.startswith("g:") else group_id
-        return (self.client.rpc("chat_group_members", {"p_group_id": uuid})
-                .execute().data or [])
+        try:
+            return (self.client.rpc("chat_group_members", {"p_group_id": uuid})
+                    .execute().data or [])
+        except Exception:
+            return []
 
     def subscriptions(self, account):
         return (self.client.table("chat_push_subscriptions")
