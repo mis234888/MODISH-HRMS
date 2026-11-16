@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS public.chat_group_members (
 );
 
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS group_id uuid REFERENCES public.chat_groups(id) ON DELETE CASCADE;
+ALTER TABLE public.chat_messages ALTER COLUMN recipient_id DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS public.chat_message_reads (
     message_id bigint NOT NULL REFERENCES public.chat_messages(id) ON DELETE CASCADE,
@@ -83,6 +84,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.chat_groups, public.chat_gr
 
 -- Atomic per-sender UUID idempotency and persistent send throttling. Same UUID
 -- with a different peer/body digest conflicts, including during concurrent sends.
+DROP FUNCTION IF EXISTS public.chat_send_message(text,text,uuid,text,text);
+DROP FUNCTION IF EXISTS public.chat_send_message(text,text,uuid,text,text,uuid);
 CREATE OR REPLACE FUNCTION public.chat_send_message(
     p_sender_id text, p_recipient_id text, p_client_id uuid,
     p_body_ciphertext text, p_body_digest text, p_group_id uuid DEFAULT NULL
@@ -174,6 +177,7 @@ $$;
 -- A keyset page of latest-per-peer summaries, not a PostgREST all-table read.
 -- Apply the cursor AFTER ranking so older messages cannot repeat a conversation.
 -- The backend follows pages until empty, avoiding Supabase's 1000-row cap.
+DROP FUNCTION IF EXISTS public.chat_conversations(text,bigint,integer);
 CREATE OR REPLACE FUNCTION public.chat_conversations(
     p_account_id text, p_before bigint DEFAULT 9007199254740992, p_limit integer DEFAULT 200
 ) RETURNS TABLE (
@@ -184,13 +188,13 @@ CREATE OR REPLACE FUNCTION public.chat_conversations(
 )
 LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
     WITH mine AS (
-        SELECT m.*, m.recipient_id AS peer, NULL::uuid AS group_id
+        SELECT m.*, m.recipient_id AS peer
         FROM public.chat_messages m WHERE m.sender_id = p_account_id AND m.group_id IS NULL
         UNION ALL
-        SELECT m.*, m.sender_id AS peer, NULL::uuid AS group_id
+        SELECT m.*, m.sender_id AS peer
         FROM public.chat_messages m WHERE m.recipient_id = p_account_id AND m.group_id IS NULL
         UNION ALL
-        SELECT m.*, NULL::text AS peer, m.group_id
+        SELECT m.*, NULL::text AS peer
         FROM public.chat_messages m
         JOIN public.chat_group_members gm ON gm.group_id = m.group_id AND gm.member_id = p_account_id
         WHERE m.group_id IS NOT NULL
@@ -208,12 +212,12 @@ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
         FROM mine
     )
     SELECT
-        CASE WHEN ranked.group_id IS NOT NULL THEN NULL ELSE ranked.peer END AS peer_id,
-        ranked.group_id,
-        ranked.group_id IS NOT NULL AS is_group,
+        CASE WHEN r.group_id IS NOT NULL THEN NULL ELSE r.peer END AS peer_id,
+        r.group_id,
+        r.group_id IS NOT NULL AS is_group,
         g.name AS group_name,
-        ranked.id, ranked.sender_id, ranked.recipient_id, ranked.client_id,
-        ranked.body_ciphertext, ranked.body_digest, ranked.created_at, ranked.read_at, ranked.unread
+        r.id, r.sender_id, r.recipient_id, r.client_id,
+        r.body_ciphertext, r.body_digest, r.created_at, r.read_at, r.unread
     FROM ranked r
     LEFT JOIN public.chat_groups g ON g.id = r.group_id
     WHERE r.rn = 1 AND r.id < p_before

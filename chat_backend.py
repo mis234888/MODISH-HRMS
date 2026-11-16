@@ -45,7 +45,7 @@ MAX_BODY = 4000
 MAX_REQUEST = 32768
 MAX_CONTACTS = 10000
 MAX_SUBSCRIPTIONS = 5
-MESSAGE_COLUMNS = "id,sender_id,recipient_id,client_id,body_ciphertext,body_digest,created_at,read_at"
+MESSAGE_COLUMNS = "id,sender_id,recipient_id,group_id,client_id,body_ciphertext,body_digest,created_at,read_at"
 _EMPLOYEE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 _EMAIL = re.compile(r"[^\s@\x00-\x1f\x7f]{1,200}@[^\s@\x00-\x1f\x7f]{1,200}\Z")
 
@@ -372,6 +372,19 @@ class _SQLiteStore:
                 row["is_group"] = True
             return rows
 
+    def create_group(self, creator, name, member_ids):
+        import uuid
+        group_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        with self.connection(write=True) as db:
+            db.execute("INSERT INTO chat_groups (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+                       (group_id, name, creator, now))
+            all_members = set(member_ids) | {creator}
+            for m in all_members:
+                db.execute("INSERT OR IGNORE INTO chat_group_members (group_id, member_id, joined_at) VALUES (?, ?, ?)",
+                           (group_id, m, now))
+        return group_id
+
     def group_members(self, group_id):
         uuid = group_id[2:] if group_id.startswith("g:") else group_id
         with self.connection() as db:
@@ -488,10 +501,23 @@ class _SupabaseStore:
 
     def groups(self, account):
         try:
-            return (self.client.rpc("chat_groups_list", {"p_account_id": account})
+            rows = (self.client.rpc("chat_groups_list", {"p_account_id": account})
                     .execute().data or [])
+            for row in rows:
+                raw_id = row.get("group_id") or row.get("id")
+                row["id"] = str(raw_id) if str(raw_id).startswith("g:") else f"g:{raw_id}"
+                row["is_group"] = True
+            return rows
         except Exception:
             return []
+
+    def create_group(self, creator, name, member_ids):
+        res = self.client.rpc("chat_group_create", {
+            "p_name": name,
+            "p_created_by": creator,
+            "p_member_ids": member_ids,
+        }).execute().data
+        return res
 
     def group_members(self, group_id):
         uuid = group_id[2:] if group_id.startswith("g:") else group_id
@@ -752,6 +778,24 @@ class _Chat:
     def groups(self):
         return self.storage().groups(g.chat_me["id"])
 
+    def create_group(self, name, member_ids):
+        creator = g.chat_me["id"]
+        name = str(name or "").strip()
+        if len(name) < 2 or len(name) > 100:
+            self.fail("Group name must be between 2 and 100 characters.", 400)
+        if not isinstance(member_ids, list):
+            self.fail("member_ids must be a list.", 400)
+        valid_members = [str(m) for m in member_ids if str(m) in g.chat_accounts and str(m) != creator]
+        new_id = self.storage().create_group(creator, name, valid_members)
+        if not new_id:
+            self.fail("Could not create chat group.", 500)
+        return {
+            "id": f"g:{new_id}",
+            "name": name,
+            "is_group": True,
+            "member_count": len(valid_members) + 1
+        }
+
     def group_members(self, group_id):
         return self.storage().group_members(group_id)
 
@@ -857,7 +901,11 @@ def init_chat(app, host_module):
         contacts = [(value for key, value in g.chat_accounts.items() if key != g.chat_me["id"])]
         group_contacts = []
         for g_ in chat.groups():
-            group_contacts.append({"id": g_["id"], "name": g_["name"], "is_group": True,
+            raw_id = g_.get("id") or g_.get("group_id")
+            if not raw_id:
+                continue
+            gid = str(raw_id) if str(raw_id).startswith("g:") else f"g:{raw_id}"
+            group_contacts.append({"id": gid, "name": g_["name"], "is_group": True,
                                    "department": "", "employee_code": "",
                                    "member_count": g_.get("member_count", 0)})
         all_contacts = list(contacts[0]) + group_contacts
@@ -931,6 +979,15 @@ def init_chat(app, host_module):
     def list_groups():
         query(set())
         return jsonify(groups=chat.groups())
+
+    @api.post("/api/chat/groups")
+    def create_chat_group():
+        query(set())
+        data = _json_object(chat.fail, {"name", "members"}, {"name"})
+        name = data.get("name")
+        members = data.get("members") or []
+        res = chat.create_group(name, members)
+        return jsonify(success=True, group=res), 201
 
     @api.get("/api/chat/groups/<path:group_id>/members")
     def list_group_members(group_id):
