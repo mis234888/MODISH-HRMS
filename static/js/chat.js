@@ -130,7 +130,14 @@
   function validMessage(raw, peer) {
     if (!raw || !numeric(raw.id)) return null;
     const sender = canonical(raw.sender_id), recipient = canonical(raw.recipient_id);
-    if (!sender || !recipient || !s.me) return null;
+    const group = canonical(raw.group_id);
+    if (!sender || !s.me) return null;
+    if (group) {
+      // Group message: peer must be the group id (g:<uuid>).
+      if (!peer || peer !== ("g:" + group)) return null;
+      return { id: numeric(raw.id), sender_id: sender, recipient_id: recipient, group_id: group, body: text(raw.body), created_at: text(raw.created_at, 80), read_at: raw.read_at ? text(raw.read_at, 80) : null };
+    }
+    if (!recipient) return null;
     const other = sender === s.me.id ? recipient : recipient === s.me.id ? sender : null;
     if (!other || other === s.me.id || (peer && other !== peer)) return null;
     return { id: numeric(raw.id), sender_id: sender, recipient_id: recipient, body: text(raw.body), created_at: text(raw.created_at, 80), read_at: raw.read_at ? text(raw.read_at, 80) : null };
@@ -150,9 +157,13 @@
     for (const raw of payload.conversations || []) {
       const peer = canonical(raw.peer_id);
       if (!peer || peer === s.me.id) continue;
-      const last = validMessage(raw.last_message, peer);
-      next.set(peer, { peer_id: peer, last_message: last, unread_count: Math.max(0, Number(raw.unread_count) || 0) });
-      if (!s.contacts.has(peer)) s.contacts.set(peer, { id: peer, name: 'Colleague', employee_code: '', department: '' });
+      const isGroup = raw.peer_id && String(raw.peer_id).startsWith("g:");
+      const last = isGroup ? validMessage(raw.last_message, peer) : validMessage(raw.last_message, peer);
+      next.set(peer, {
+        peer_id: peer, is_group: isGroup, group_name: raw.group_name || null,
+        last_message: last, unread_count: Math.max(0, Number(raw.unread_count) || 0)
+      });
+      if (!s.contacts.has(peer)) s.contacts.set(peer, { id: peer, name: raw.group_name || 'Colleague', employee_code: '', department: '', is_group: isGroup });
       if (last && s.threads.has(peer)) merge(peer, [last]);
     }
     s.conversations = next;
@@ -173,13 +184,17 @@
     const fragment = document.createDocumentFragment();
     for (const person of peers) {
       const conversation = s.conversations.get(person.id);
-      const button = node('button', 'chat-contact'); button.type = 'button';
+      const button = node('button', 'chat-contact' + (person.is_group ? ' chat-contact-group' : '')); button.type = 'button';
       button.setAttribute('aria-current', String(person.id === s.peer));
-      const initials = person.name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
+      const initials = person.is_group ? 'G' : person.name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
       button.append(node('span', 'chat-contact-avatar', initials || '?'));
       const details = node('span', 'chat-contact-text');
       details.append(node('span', 'chat-contact-name', person.name));
-      details.append(node('span', 'chat-contact-detail', [person.employee_code, person.department].filter(Boolean).join(' · ')));
+      if (person.is_group) {
+        details.append(node('span', 'chat-contact-detail', 'Group ' + (person.member_count ? person.member_count + ' members' : '')));
+      } else {
+        details.append(node('span', 'chat-contact-detail', [person.employee_code, person.department].filter(Boolean).join(' Â· ')));
+      }
       if (conversation?.last_message) details.append(node('span', 'chat-contact-preview', conversation.last_message.body.replace(/\s+/g, ' ').slice(0, 80)));
       button.append(details);
       if (conversation?.unread_count) button.append(node('span', 'chat-badge', String(conversation.unread_count)));
@@ -289,7 +304,10 @@
     s.peer = peer; const selection = ++s.selection, epoch = s.epoch;
     const person = s.contacts.get(peer), t = thread(peer);
     el('chatPeerName').textContent = person.name;
-    el('chatPeerDetails').textContent = [person.employee_code, person.department].filter(Boolean).join(' · ');
+    if (person.is_group) {
+      el('chatPeerDetails').textContent = 'Group ' + (person.member_count ? person.member_count + ' members' : '');
+    } else {
+      el('chatPeerDetails').textContent = [person.employee_code, person.department].filter(Boolean).join(' · ');
     el('chatDraft').value = t.draft;
     el('chatLayout').classList.add('chat-peer-open');
     if (changed) { el('chatMessageList').replaceChildren(); el('chatJump').hidden = true; }

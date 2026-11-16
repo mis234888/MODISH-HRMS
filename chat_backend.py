@@ -181,7 +181,9 @@ class _SQLiteStore:
                     sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
                     client_id TEXT NOT NULL, body_ciphertext TEXT NOT NULL,
                     body_digest TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT,
-                    UNIQUE(sender_id, client_id), CHECK(sender_id <> recipient_id)
+                    group_id TEXT,
+                    UNIQUE(sender_id, client_id),
+                    CHECK(group_id IS NOT NULL OR sender_id <> recipient_id)
                 );
                 CREATE INDEX IF NOT EXISTS chat_pair_out ON chat_messages(sender_id, recipient_id, id);
                 CREATE INDEX IF NOT EXISTS chat_pair_in ON chat_messages(recipient_id, sender_id, id);
@@ -189,6 +191,25 @@ class _SQLiteStore:
                 CREATE INDEX IF NOT EXISTS chat_unread ON chat_messages(recipient_id, sender_id, id)
                     WHERE read_at IS NULL;
                 CREATE INDEX IF NOT EXISTS chat_send_rate ON chat_messages(sender_id, created_at);
+                CREATE INDEX IF NOT EXISTS chat_group_idx ON chat_messages(group_id, id);
+                CREATE TABLE IF NOT EXISTS chat_groups (
+                    id TEXT NOT NULL, name TEXT NOT NULL,
+                    created_by TEXT NOT NULL, created_at TEXT NOT NULL,
+                    PRIMARY KEY(id)
+                );
+                CREATE TABLE IF NOT EXISTS chat_group_members (
+                    group_id TEXT NOT NULL, member_id TEXT NOT NULL,
+                    joined_at TEXT NOT NULL,
+                    PRIMARY KEY(group_id, member_id)
+                );
+                CREATE TABLE IF NOT EXISTS chat_message_reads (
+                    message_id INTEGER NOT NULL, member_id TEXT NOT NULL,
+                    read_at TEXT NOT NULL,
+                    PRIMARY KEY(message_id, member_id),
+                    FOREIGN KEY(message_id) REFERENCES chat_messages(id)
+                );
+                CREATE INDEX IF NOT EXISTS chat_group_members_member ON chat_group_members(member_id, group_id);
+                CREATE INDEX IF NOT EXISTS chat_message_reads_member ON chat_message_reads(member_id, message_id);
                 CREATE TABLE IF NOT EXISTS chat_push_subscriptions (
                     account_id TEXT NOT NULL, endpoint_hash TEXT NOT NULL,
                     subscription_ciphertext TEXT NOT NULL, preview INTEGER NOT NULL DEFAULT 0,
@@ -214,41 +235,87 @@ class _SQLiteStore:
         finally:
             db.close()
 
+    def _is_group(self, peer):
+        return isinstance(peer, str) and peer.startswith("g:")
+
+    def _group_uuid(self, peer):
+        return peer[2:] if self._is_group(peer) else None
+
     def messages(self, account, peer, before):
         with self.connection() as db:
-            return [dict(r) for r in db.execute("""
-                SELECT * FROM chat_messages WHERE id < ? AND
-                  ((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?))
-                ORDER BY id DESC LIMIT 51
-            """, (before or MAX_ID + 1, account, peer, peer, account))]
+            if self._is_group(peer):
+                rows = db.execute("""
+                    SELECT * FROM chat_messages WHERE id < ? AND group_id = ?
+                    ORDER BY id DESC LIMIT 51
+                """, (before or MAX_ID + 1, self._group_uuid(peer)))
+            else:
+                rows = db.execute("""
+                    SELECT * FROM chat_messages WHERE id < ? AND
+                      ((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?))
+                    ORDER BY id DESC LIMIT 51
+                """, (before or MAX_ID + 1, account, peer, peer, account))
+            return [dict(r) for r in rows]
 
     def events(self, account, after):
         with self.connection() as db:
-            return [dict(r) for r in db.execute(
-                "SELECT * FROM chat_messages WHERE recipient_id = ? AND id > ? ORDER BY id LIMIT 101",
-                (account, after))]
+            group_ids = [r["group_id"] for r in db.execute(
+                "SELECT group_id FROM chat_group_members WHERE member_id = ?", (account,))]
+            if group_ids:
+                placeholders = ",".join("?" for _ in group_ids)
+                rows = db.execute(f"""
+                    SELECT * FROM chat_messages WHERE id > ? AND (
+                      recipient_id = ? OR group_id IN ({placeholders}))
+                    ORDER BY id LIMIT 101
+                """, (after, account, *group_ids))
+            else:
+                rows = db.execute(
+                    "SELECT * FROM chat_messages WHERE recipient_id = ? AND id > ? ORDER BY id LIMIT 101",
+                    (account, after))
+            return [dict(r) for r in rows]
 
     def conversations(self, account):
         with self.connection() as db:
-            return [dict(r) for r in db.execute("""
+            rows = [dict(r) for r in db.execute("""
                 WITH mine AS (
-                    SELECT *, recipient_id AS peer_id FROM chat_messages WHERE sender_id = ?
+                    SELECT *, recipient_id AS peer_id, NULL AS group_id FROM chat_messages
+                        WHERE sender_id = ? AND group_id IS NULL
                     UNION ALL
-                    SELECT *, sender_id AS peer_id FROM chat_messages WHERE recipient_id = ?
+                    SELECT *, sender_id AS peer_id, NULL AS group_id FROM chat_messages
+                        WHERE recipient_id = ? AND group_id IS NULL
+                    UNION ALL
+                    SELECT *, NULL AS peer_id, group_id FROM chat_messages
+                    JOIN chat_group_members gm ON gm.group_id = chat_messages.group_id
+                    WHERE gm.member_id = ? AND group_id IS NOT NULL
                 ), ranked AS (
-                    SELECT *, ROW_NUMBER() OVER(PARTITION BY peer_id ORDER BY id DESC) AS rn,
-                        SUM(CASE WHEN recipient_id = ? AND read_at IS NULL THEN 1 ELSE 0 END)
-                            OVER(PARTITION BY peer_id) AS unread_count
+                    SELECT *, ROW_NUMBER() OVER(PARTITION BY COALESCE(peer_id, group_id) ORDER BY id DESC) AS rn,
+                        SUM(CASE
+                            WHEN group_id IS NULL AND recipient_id = ? AND read_at IS NULL THEN 1
+                            WHEN group_id IS NOT NULL AND NOT EXISTS (
+                                SELECT 1 FROM chat_message_reads r
+                                WHERE r.message_id = chat_messages.id AND r.member_id = ?
+                            ) THEN 1
+                            ELSE 0
+                        END) OVER(PARTITION BY COALESCE(peer_id, group_id)) AS unread_count
                     FROM mine
                 ) SELECT * FROM ranked WHERE rn = 1 ORDER BY id DESC
-            """, (account, account, account))]
+            """, (account, account, account, account, account))]
+            for row in rows:
+                if row["group_id"] is not None:
+                    row["peer_id"] = "g:" + row["group_id"]
+                    row["is_group"] = True
+                    row["group_id_prefixed"] = row["peer_id"]
+                else:
+                    row["is_group"] = False
+            return rows
 
     def send(self, account, peer, client_id, ciphertext, digest):
         with self.connection(write=True) as db:
             row = db.execute("SELECT * FROM chat_messages WHERE sender_id = ? AND client_id = ?",
                              (account, client_id)).fetchone()
             if row:
-                status = "existing" if row["recipient_id"] == peer and row["body_digest"] == digest else "conflict"
+                same_target = (self._is_group(peer) and row["group_id"] == self._group_uuid(peer)) or \
+                              (not self._is_group(peer) and row["recipient_id"] == peer and row["group_id"] is None)
+                status = "existing" if same_target and row["body_digest"] == digest else "conflict"
                 return status, dict(row)
             since = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(timespec="microseconds")
             count = db.execute("SELECT COUNT(*) FROM chat_messages WHERE sender_id = ? AND created_at >= ?",
@@ -256,22 +323,62 @@ class _SQLiteStore:
             if count >= 30:
                 return "rate_limited", None
             cursor = db.execute("""
-                INSERT INTO chat_messages(sender_id,recipient_id,client_id,body_ciphertext,body_digest,created_at)
-                VALUES(?,?,?,?,?,?)
-            """, (account, peer, client_id, ciphertext, digest, _now()))
+                INSERT INTO chat_messages(sender_id,recipient_id,group_id,client_id,body_ciphertext,body_digest,created_at)
+                VALUES(?,?,?,?,?,?,?)
+            """, (account,
+                    None if self._is_group(peer) else peer,
+                    self._group_uuid(peer) if self._is_group(peer) else None,
+                    client_id, ciphertext, digest, _now()))
+            if self._is_group(peer):
+                db.execute("INSERT INTO chat_message_reads(message_id, member_id) VALUES(?, ?)",
+                           (cursor.lastrowid, account))
             row = db.execute("SELECT * FROM chat_messages WHERE id = ?", (cursor.lastrowid,)).fetchone()
             return "created", dict(row)
 
     def mark_read(self, account, peer, through):
         with self.connection(write=True) as db:
-            opened = db.execute("SELECT id FROM chat_messages WHERE id = ? AND recipient_id = ? AND sender_id = ?",
-                                (through, account, peer)).fetchone()
-            if not opened:
-                return False
-            db.execute("""UPDATE chat_messages SET read_at = ?
-                WHERE recipient_id = ? AND sender_id = ? AND id <= ? AND read_at IS NULL""",
-                       (_now(), account, peer, through))
+            if self._is_group(peer):
+                opened = db.execute("SELECT id FROM chat_messages WHERE id = ? AND group_id = ?",
+                                    (through, self._group_uuid(peer))).fetchone()
+                if not opened:
+                    return False
+                db.execute("""INSERT INTO chat_message_reads(message_id, member_id)
+                    SELECT id, ? FROM chat_messages WHERE group_id = ? AND id <= ?
+                    AND NOT EXISTS (
+                        SELECT 1 FROM chat_message_reads r WHERE r.message_id = chat_messages.id AND r.member_id = ?
+                    )""", (account, self._group_uuid(peer), through, account))
+            else:
+                opened = db.execute("SELECT id FROM chat_messages WHERE id = ? AND recipient_id = ? AND sender_id = ?",
+                                    (through, account, peer)).fetchone()
+                if not opened:
+                    return False
+                db.execute("""UPDATE chat_messages SET read_at = ?
+                    WHERE recipient_id = ? AND sender_id = ? AND id <= ? AND read_at IS NULL""",
+                           (_now(), account, peer, through))
             return True
+
+    def groups(self, account):
+        with self.connection() as db:
+            rows = [dict(r) for r in db.execute("""
+                SELECT g.id, g.name, g.created_by, g.created_at,
+                       (SELECT count(*) FROM chat_group_members gm WHERE gm.group_id = g.id) AS member_count
+                FROM chat_group_members gm
+                JOIN chat_groups g ON g.id = gm.group_id
+                WHERE gm.member_id = ?
+                ORDER BY g.created_at DESC
+            """, (account,))]
+            for row in rows:
+                row["id"] = "g:" + row["id"]
+                row["is_group"] = True
+            return rows
+
+    def group_members(self, group_id):
+        uuid = group_id[2:] if group_id.startswith("g:") else group_id
+        with self.connection() as db:
+            return [dict(r) for r in db.execute("""
+                SELECT member_id, joined_at FROM chat_group_members WHERE group_id = ?
+                ORDER BY joined_at
+            """, (uuid,))]
 
     def subscriptions(self, account):
         with self.connection() as db:
@@ -303,9 +410,21 @@ class _SupabaseStore:
     def __init__(self, client):
         self.client = client
 
+    def _is_group(self, peer):
+        return isinstance(peer, str) and peer.startswith("g:")
+
+    def _group_uuid(self, peer):
+        return peer[2:] if self._is_group(peer) else None
+
     def messages(self, account, peer, before):
+        if self._is_group(peer):
+            query = (self.client.table("chat_messages").select(MESSAGE_COLUMNS)
+                     .eq("group_id", self._group_uuid(peer)))
+            if before is not None:
+                query = query.lt("id", before)
+            rows = query.order("id", desc=True).limit(51).execute().data or []
+            return sorted(rows, key=lambda row: int(row["id"]), reverse=True)[:51]
         rows = []
-        # Two indexed directions avoid interpolating IDs into PostgREST or_ syntax.
         for sender, recipient in ((account, peer), (peer, account)):
             query = (self.client.table("chat_messages").select(MESSAGE_COLUMNS)
                      .eq("sender_id", sender).eq("recipient_id", recipient))
@@ -315,9 +434,14 @@ class _SupabaseStore:
         return sorted(rows, key=lambda row: int(row["id"]), reverse=True)[:51]
 
     def events(self, account, after):
-        return (self.client.table("chat_messages").select(MESSAGE_COLUMNS)
+        rows = (self.client.table("chat_messages").select(MESSAGE_COLUMNS)
                 .eq("recipient_id", account).gt("id", after)
                 .order("id").limit(101).execute().data or [])
+        # Also deliver group messages for groups this account is a member of.
+        group_rows = (self.client.table("chat_messages").select(MESSAGE_COLUMNS)
+                      .in_filter("group_id", [g["id"][2:] for g in self.groups(account)])
+                      .gt("id", after).order("id").limit(101).execute().data or [])
+        return sorted(rows + group_rows, key=lambda row: int(row["id"]))[:101]
 
     def conversations(self, account):
         rows = []
@@ -338,8 +462,10 @@ class _SupabaseStore:
 
     def send(self, account, peer, client_id, ciphertext, digest):
         result = self.client.rpc("chat_send_message", {
-            "p_sender_id": account, "p_recipient_id": peer, "p_client_id": client_id,
-            "p_body_ciphertext": ciphertext, "p_body_digest": digest,
+            "p_sender_id": account,
+            "p_recipient_id": None if self._is_group(peer) else peer,
+            "p_group_id": self._group_uuid(peer) if self._is_group(peer) else None,
+            "p_client_id": client_id, "p_body_ciphertext": ciphertext, "p_body_digest": digest,
         }).execute().data
         return result["status"], result.get("message")
 
@@ -347,6 +473,15 @@ class _SupabaseStore:
         return bool(self.client.rpc("chat_mark_read", {
             "p_account_id": account, "p_peer_id": peer, "p_through_id": through,
         }).execute().data)
+
+    def groups(self, account):
+        return (self.client.rpc("chat_groups_list", {"p_account_id": account})
+                .execute().data or [])
+
+    def group_members(self, group_id):
+        uuid = group_id[2:] if group_id.startswith("g:") else group_id
+        return (self.client.rpc("chat_group_members", {"p_group_id": uuid})
+                .execute().data or [])
 
     def subscriptions(self, account):
         return (self.client.table("chat_push_subscriptions")
@@ -467,7 +602,16 @@ class _Chat:
         return accounts, accounts[account_id]
 
     def peer(self, peer_id):
-        if len(peer_id) > 256 or peer_id not in g.chat_accounts or peer_id == g.chat_me["id"]:
+        if len(peer_id) > 256 or peer_id == g.chat_me["id"]:
+            self.fail("Chat contact not found.", 404)
+        if peer_id.startswith("g:"):
+            group_uuid = peer_id[2:]
+            store = self.storage()
+            groups = store.groups(g.chat_me["id"])
+            if not any(gr["id"] == peer_id for gr in groups):
+                self.fail("Chat contact not found.", 404)
+            return peer_id
+        if peer_id not in g.chat_accounts:
             self.fail("Chat contact not found.", 404)
         return peer_id
 
@@ -569,16 +713,29 @@ class _Chat:
         if not 1 <= message_id <= MAX_ID:
             raise ValueError("invalid stored message ID")
         return {"id": message_id, "body": self.decrypt(row["body_ciphertext"]),
-                "sender_id": row["sender_id"], "recipient_id": row["recipient_id"],
-                "created_at": row["created_at"], "read_at": row.get("read_at")}
+                "sender_id": row["sender_id"], "recipient_id": row.get("recipient_id"),
+                "group_id": row.get("group_id"), "created_at": row["created_at"],
+                "read_at": row.get("read_at")}
 
     def conversation_payload(self):
         conversations = []
         for row in self.storage().conversations(g.chat_me["id"]):
-            conversations.append({"peer_id": row["peer_id"], "last_message": self.message(row),
+            peer_id = row["peer_id"]
+            is_group = bool(row.get("is_group"))
+            if is_group:
+                peer_id = row.get("group_id_prefixed") or peer_id
+            conversations.append({"peer_id": peer_id, "is_group": is_group,
+                                  "group_name": row.get("group_name") if is_group else None,
+                                  "last_message": self.message(row),
                                   "unread_count": int(row["unread_count"])})
         return {"conversations": conversations,
                 "unread_count": sum(item["unread_count"] for item in conversations)}
+
+    def groups(self):
+        return self.storage().groups(g.chat_me["id"])
+
+    def group_members(self, group_id):
+        return self.storage().group_members(group_id)
 
     def push_config(self):
         public = self.setting("CHAT_VAPID_PUBLIC_KEY")
@@ -679,9 +836,16 @@ def init_chat(app, host_module):
     def bootstrap():
         query(set())
         payload = chat.conversation_payload()
+        contacts = [(value for key, value in g.chat_accounts.items() if key != g.chat_me["id"])]
+        group_contacts = []
+        for g_ in chat.groups():
+            group_contacts.append({"id": g_["id"], "name": g_["name"], "is_group": True,
+                                   "department": "", "employee_code": "",
+                                   "member_count": g_.get("member_count", 0)})
+        all_contacts = list(contacts[0]) + group_contacts
         payload.update(me={"id": g.chat_me["id"], "name": g.chat_me["name"]},
                        csrf_token=chat.bootstrap_token(), push=chat.push_status(),
-                       contacts=sorted((value for key, value in g.chat_accounts.items() if key != g.chat_me["id"]),
+                       contacts=sorted(all_contacts,
                                        key=lambda value: (value["name"].casefold(), value["id"])))
         return jsonify(payload)
 
@@ -744,6 +908,17 @@ def init_chat(app, host_module):
         if not chat.storage().mark_read(g.chat_me["id"], peer, through):
             chat.fail("Opened message not found in this conversation.", 404)
         return jsonify(success=True)
+
+    @api.get("/api/chat/groups")
+    def list_groups():
+        query(set())
+        return jsonify(groups=chat.groups())
+
+    @api.get("/api/chat/groups/<path:group_id>/members")
+    def list_group_members(group_id):
+        query(set())
+        peer = chat.peer(group_id)
+        return jsonify(members=chat.group_members(peer))
 
     @api.get("/api/chat/events")
     def events():

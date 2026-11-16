@@ -9,7 +9,7 @@ DISK OK   deploy-ready\static\img/favicon.png  (6212 bytes)
 PIXEL static\img/ekkaa-mark.png size=(512, 512) corner_alpha=0 (transparent bg OK)
 PIXEL deploy-ready\static\img/ekkaa-mark.png size=(512, 512) corner_alpha=0 (transparent bg OK)
 === STEP 2: SERVER ===
-SERVER: started pid=18416 up=True
+SERVER: started pid=9208 up=True
 === STEP 3: HTTP ASSETS ===
 HTTP /static/img/ekkaa-logo-full.png: 200 image/png len=41025
 HTTP /static/img/ekkaa-mark.png: 200 image/png len=135522
