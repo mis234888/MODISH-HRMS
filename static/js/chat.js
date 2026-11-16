@@ -308,6 +308,7 @@
       el('chatPeerDetails').textContent = 'Group ' + (person.member_count ? person.member_count + ' members' : '');
     } else {
       el('chatPeerDetails').textContent = [person.employee_code, person.department].filter(Boolean).join(' · ');
+    }
     el('chatDraft').value = t.draft;
     el('chatLayout').classList.add('chat-peer-open');
     if (changed) { el('chatMessageList').replaceChildren(); el('chatJump').hidden = true; }

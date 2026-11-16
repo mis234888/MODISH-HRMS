@@ -336,7 +336,10 @@ async function bootApp() {
   $('#profileSwitcher')?.addEventListener('click', e => { e.stopPropagation(); $('#profileDropdown').classList.toggle('hidden'); });
   document.addEventListener('click', () => $('#profileDropdown')?.classList.add('hidden'));
   // nav
-  $$('.nav-item').forEach(a => a.addEventListener('click', () => switchModule(a.dataset.module)));
+  $$('.nav-item').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault();
+    switchModule(a.dataset.module);
+  }));
   // module tab clicks
   document.addEventListener('click', e => {
     const tab = e.target.closest('[data-orgtab],[data-doctab],[data-attview],[data-leave],[data-tstab],[data-paytab],[data-hiringtab],[data-perftab]');
