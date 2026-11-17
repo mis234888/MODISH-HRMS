@@ -816,6 +816,28 @@
   }
   window.EkkaaChat = { init, load };
   // Load groups after chat initialization
+  async function loadGroups() {
+    if (!s.ready) return;
+    try {
+      const rows = await request('groups');
+      s.groups.clear();
+      for (const row of rows || []) {
+        const groupId = row.group_id || row.id;
+        s.groups.set(groupId, {
+          id: groupId,
+          name: row.name,
+          member_count: row.member_count,
+          created_by: row.created_by,
+          created_at: row.created_at,
+          is_member: true
+        });
+      }
+      renderGroups();
+    } catch (error) {
+      console.error('Failed to load groups:', error);
+    }
+  }
+  // Load groups after chat initialization
   loadGroups();
 })();
   // Groups button toggle
