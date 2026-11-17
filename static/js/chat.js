@@ -21,6 +21,7 @@
     bootstrap: null, conversationRequest: null, controllers: new Set(), blocked: false,
     registration: null, workerPromise: null, enabled: false, preview: false,
     notificationBusy: false, push: {}, channel: null, notices: new Set(), pendingNotices: new Map(), readTimer: null,
+    groups: new Map(),
   };
   function visible() { return document.visibilityState === 'visible' && document.hasFocus(); }
   function active() { return el('module-chat').classList.contains('active'); }
@@ -493,6 +494,27 @@
     try { await promise; } catch (error) { if (epoch === s.epoch) fail(error); }
     finally { if (s.bootstrap === promise) s.bootstrap = null; }
   }
+  async function renderGroups() {
+    const groupsList = document.getElementById('chatGroupsList');
+    if (!groupsList) return;
+    const groups = Array.from(s.groups.values());
+    if (groups.length === 0) {
+      groupsList.innerHTML = '<p class="chat-empty">No groups found. Create one above!</p>';
+      return;
+    }
+    groupsList.innerHTML = groups.map(g => `
+      <div class="keka-card p-3 flex items-center justify-between cursor-pointer hover:bg-[#f0fdf4]" onclick="openGroupChat('${g.id}')">
+        <span>${g.name}</span>
+        <span class="text-xs text-[#64748b]">${g.member_count ? g.member_count + ' members' : ''}</span>
+      </div>
+    `).join('');
+    document.getElementById('chatGroups').classList.remove('hidden');
+  }
+  function openGroupChat(groupId) {
+    // Set the peer to the group (with g: prefix)
+    s.peer = 'g:' + groupId;
+    openPeer('g:' + groupId, 'replace');
+  }
   function load() {
     // switchModule can run before bootApp has resolved /api/session.
     if (!s.started) return;
@@ -793,4 +815,61 @@
     }
   }
   window.EkkaaChat = { init, load };
+  // Load groups after chat initialization
+  loadGroups();
 })();
+  // Groups button toggle
+  function toggleGroups() {
+    const groupsSection = document.getElementById('chatGroups');
+    if (!groupsSection) return;
+    groupsSection.classList.toggle('hidden');
+    if (!groupsSection.classList.contains('hidden')) {
+      loadGroups();
+    }
+  }
+  // Add event listener for the Groups button
+  el('chatGroupsBtn').addEventListener('click', toggleGroups);
+  // Add event listener for the create group form
+  el('createGroupBtn').addEventListener('click', createGroup);
+  el('cancelGroupBtn').addEventListener('click', () => {
+    document.getElementById('newGroupName').value = '';
+    document.getElementById('createGroupForm').classList.add('hidden');
+  });
+  // Create group function
+  async function createGroup() {
+    const name = document.getElementById('newGroupName').value.trim();
+    if (!name) {
+      alert('Please enter a group name');
+      return;
+    }
+    try {
+      const res = await request('groups', {
+        method: 'POST',
+        body: { name }
+      });
+      if (res.success) {
+        // Add the new group to the groups map
+        const groupId = 'g:' + res.group;
+        s.groups.set(groupId, {
+          id: groupId,
+          name: res.group,
+          member_count: 1, // Creator is always a member
+          created_by: s.me?.id,
+          created_at: new Date().toISOString(),
+          is_member: true
+        });
+        renderGroups();
+        // Close the form
+        document.getElementById('newGroupName').value = '';
+        document.getElementById('createGroupForm').classList.add('hidden');
+        // Open the group chat
+        s.peer = groupId;
+        openPeer(groupId, 'replace');
+      } else {
+        alert('Failed to create group: ' + (res.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Failed to create group:', error);
+      alert('Failed to create group. Please try again.');
+    }
+  }

@@ -305,6 +305,15 @@
         <div class="chat-toolbar">
           <div><h2>Team chat</h2><p>One-to-one messages, just between you and your colleague.</p></div>
           <button id="chatRefresh" type="button" class="btn btn-ghost btn-xs">Refresh</button>
+          <button id="chatGroupsBtn" type="button" class="btn btn-primary btn-xs" style="margin-left: 8px;">Groups</button>
+        </div>
+        <div id="chatGroups" class="chat-groups space-y-3 hidden">
+          <div id="chatGroupsList"></div>
+          <div id="createGroupForm" class="hidden">
+            <input id="newGroupName" type="text" class="field" placeholder="Group name" style="margin-bottom: 8px;">
+            <button id="createGroupBtn" class="btn btn-primary btn-xs">Create</button>
+            <button id="cancelGroupBtn" class="btn btn-ghost btn-xs">Cancel</button>
+          </div>
         </div>
         <div id="chatStatus" class="chat-status" role="status" aria-live="polite" hidden><span id="chatStatusText"></span> <button id="chatRetry" type="button" class="btn btn-ghost btn-xs">Retry connection</button></div>
         <details class="chat-settings keka-card">
